@@ -34,6 +34,6 @@ jobs:
           push: true
           tags: 
             # 选项1：Docker Hub 标签（格式：用户名/仓库名:版本）
-            your-docker-username/your-repo:latest
+            # your-docker-username/your-repo:latest
             # 选项2：GHCR 标签（格式：ghcr.io/用户名/仓库名:版本）
-            # ghcr.io/${{ github.actor }}/your-repo:latest
+            ghcr.io/${{ github.repository }}:latest

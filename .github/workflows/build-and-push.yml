@@ -1,53 +1,45 @@
 name: 构建并推送 Docker 镜像
 
-# 触发方式：push 到 main 分支，或手动触发（workflow_dispatch）
 on:
   push:
-    branches: [ main ]    # 仅在 main 分支推送时触发
-  workflow_dispatch:      # 允许手动触发
+    branches: [ main ]
+  workflow_dispatch:
 
-# 为了能够向 GHCR 写入，需要给 GITHUB_TOKEN 额外的 packages 权限
 permissions:
-  contents: read          # 默认读取源码的权限
-  packages: write         # 允许向 GHCR 推送镜像
-  # 如果你还会发布 Release，可再加上
-  # deployments: write
+  contents: read
+  packages: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ 检出代码（默认会把仓库的最新提交拉到 runner）
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2️⃣ 设置 Docker Buildx（多平台构建的必备插件）
-      - name: 设置 Docker 构建工具
-        uses: docker/setup-buildx-action@v3
+      - name: 生成小写仓库名
+        id: repo_name
+        run: |
+          REPO_LOWER="${{ github.event.repository.name,, }}"
+          echo "repo_lower=$REPO_LOWER" >> $GITHUB_OUTPUT
+          echo "REPO_LOWER=$REPO_LOWER" >> $GITHUB_ENV
 
-      # 3️⃣ 登录到镜像仓库（这里演示登录 GitHub Container Registry）
-      - name: 登录到 GHCR
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io                # 可省略，同上
-          username: ${{ github.actor }}   # GitHub 用户名（当前触发工作流的账号）
+          registry: ghcr.io
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 4️⃣ 构建镜像并推送到 GHCR
       - name: 构建并推送镜像
         uses: docker/build-push-action@v5
         with:
-          context: .                      # Dockerfile 所在目录（这里是项目根目录）
-          push: true                      # 构建完后直接推送
+          context: .
+          push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ toLower(github.event.repository.name) }}:latest
-          # 如果你想一次打多个标签（例如:latest、:v1.0.0），可以写成：
-          # tags: |
-          #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
-          #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:v1.0.0
+            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest
 
-      # 5️⃣ （可选）输出镜像的完整名称，方便在后续步骤中使用
       - name: 输出镜像完整标签
         run: |
-          echo "镜像已推送到: ghcr.io/${{ github.repository_owner }}/${{ toLower(github.event.repository.name) }}:latest"
+          echo "✔ 已推送至：ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest"

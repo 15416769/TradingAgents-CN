@@ -41,7 +41,7 @@ jobs:
           context: .                      # Dockerfile 所在目录（这里是项目根目录）
           push: true                      # 构建完后直接推送
           tags: |
-            ghcr.io/${{ github.repository_owner }}/tradingAgents-cn:latest
+            ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest
           # 如果你想一次打多个标签（例如:latest、:v1.0.0），可以写成：
           # tags: |
           #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
@@ -50,4 +50,4 @@ jobs:
       # 5️⃣ （可选）输出镜像的完整名称，方便在后续步骤中使用
       - name: 输出镜像完整标签
         run: |
-          echo "镜像已推送到: ghcr.io/${{ github.repository_owner }}/tradingAgents-cn:latest"
+          echo "镜像已推送到: ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest"

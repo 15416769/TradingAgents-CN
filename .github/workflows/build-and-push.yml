@@ -4,12 +4,11 @@ name: 构建并推送 Docker 镜像
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:       # 允许手动触发
+  workflow_dispatch:
 
-# 需要的权限：写入 GHCR
 permissions:
-  contents: read          # 读取源码的默认权限
-  packages: write         # 推送到 GitHub Container Registry 必须
+  contents: read
+  packages: write
 
 jobs:
   build-and-push:
@@ -17,14 +16,23 @@ jobs:
 
     steps:
       # 1️⃣ 检出代码
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2️⃣ 设置 Buildx（多平台构建的必备插件）
+      # 2️⃣ 把仓库名转成小写并写入环境变量 (REPO_LOWER)
+      - name: 生成小写仓库名
+        id: repo_lower
+        run: |
+          # Bash 参数展开 ${VAR,,} → 小写
+          REPO_LOWER="${{ github.event.repository.name,, }}"
+          echo "REPO_LOWER=$REPO_LOWER" >> $GITHUB_ENV   # 供后面所有步骤使用
+          echo "repo_lower=$REPO_LOWER" >> $GITHUB_OUTPUT # 供后续 steps 使用 outputs.repo_lower
+        # 这里不需要任何 secret，纯本地运算
+
+      # 3️⃣ 设置 Docker Buildx
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 3️⃣ 登录 GHCR（使用默认的 GITHUB_TOKEN）
+      # 4️⃣ 登录 GHCR
       - name: 登录 GHCR
         uses: docker/login-action@v3
         with:
@@ -32,20 +40,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 4️⃣ 构建并推送镜像
+      # 5️⃣ 构建并推送镜像（使用 env.REPO_LOWER）
       - name: 构建并推送镜像
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ toLower(github.event.repository.name) }}:latest
-          # 若想同时打 version/tag，可写成：
+            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest
+          # 若想再加上版本标签，可写成：
           # tags: |
-          #   ghcr.io/${{ github.repository_owner }}/${{ toLower(github.event.repository.name) }}:latest
-          #   ghcr.io/${{ github.repository_owner }}/${{ toLower(github.event.repository.name) }}:${{ github.sha }}
+          #   ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest
+          #   ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
-      # 5️⃣ 输出最终镜像名（调试/后续步骤可复用）
+      # 6️⃣ 输出最终镜像名称（调试/后续步骤可复用）
       - name: 输出镜像完整标签
         run: |
-          echo "✔ 镜像已推送至: ghcr.io/${{ github.repository_owner }}/${{ toLower(github.event.repository.name) }}:latest"
+          echo "✔ 已推送至: ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest"

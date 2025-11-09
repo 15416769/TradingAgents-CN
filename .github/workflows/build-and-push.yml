@@ -1,53 +1,88 @@
 name: 构建并推送 Docker 镜像
 
+# -------------------------------------------------
 # 触发方式：push 到 main 分支，或手动触发（workflow_dispatch）
+# -------------------------------------------------
 on:
   push:
     branches: [ main ]    # 仅在 main 分支推送时触发
   workflow_dispatch:      # 允许手动触发
 
+# -------------------------------------------------
 # 为了能够向 GHCR 写入，需要给 GITHUB_TOKEN 额外的 packages 权限
+# -------------------------------------------------
 permissions:
   contents: read          # 默认读取源码的权限
   packages: write         # 允许向 GHCR 推送镜像
-  # 如果你还会发布 Release，可再加上
-  # deployments: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
+      # -------------------------------------------------
       # 1️⃣ 检出代码（默认会把仓库的最新提交拉到 runner）
+      # -------------------------------------------------
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 2️⃣ 设置 Docker Buildx（多平台构建的必备插件）
+      # -------------------------------------------------
+      # 2️⃣ 安装 QEMU 以支持跨架构（arm64）仿真
+      # -------------------------------------------------
+      - name: 安装 QEMU 多平台支持
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64      # 只需要 arm64，amd64 原生支持
+
+      # -------------------------------------------------
+      # 3️⃣ 设置 Docker Buildx（多平台构建的必备插件）
+      # -------------------------------------------------
       - name: 设置 Docker 构建工具
         uses: docker/setup-buildx-action@v3
 
-      # 3️⃣ 登录到镜像仓库（这里演示登录 GitHub Container Registry）
+      # -------------------------------------------------
+      # 4️⃣ 登录到 GHCR（使用默认的 GITHUB_TOKEN）
+      # -------------------------------------------------
       - name: 登录到 GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io                # 可省略，同上
-          username: ${{ github.actor }}   # GitHub 用户名（当前触发工作流的账号）
+          registry: ghcr.io               # 可省略，显式写更清晰
+          username: ${{ github.actor }}   # 当前触发工作流的 GitHub 用户
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 4️⃣ 构建镜像并推送到 GHCR
+      # -------------------------------------------------
+      # 5️⃣ （可选）启用 BuildKit 本地缓存，提升后续构建速度
+      # -------------------------------------------------
+      - name: 设置本地缓存（可选）
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      # -------------------------------------------------
+      # 6️⃣ 构建并推送多平台镜像（amd64 + arm64）
+      # -------------------------------------------------
       - name: 构建并推送镜像
         uses: docker/build-push-action@v5
         with:
-          context: .                      # Dockerfile 所在目录（这里是项目根目录）
-          push: true                      # 构建完后直接推送
+          context: .                     # Dockerfile 所在目录（项目根目录）
+          push: true                     # 构建完后直接推送到 GHCR
+          platforms: linux/amd64,linux/arm64   # ★ 关键：指定双平台
+          # 若启用了缓存，这两行可以保留；不需要缓存可直接删掉
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache,mode=max
           tags: |
             ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest
-          # 如果你想一次打多个标签（例如:latest、:v1.0.0），可以写成：
-          # tags: |
-          #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
-          #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:v1.0.0
+        # 若想一次打多个标签（例如: v1.0.0），取消下面的注释即可
+        # ghcr.io/${{ github.repository_owner }}/tradingagents-cn:${{ github.sha }}
 
-      # 5️⃣ （可选）输出镜像的完整名称，方便在后续步骤中使用
+      # -------------------------------------------------
+      # 7️⃣ 输出镜像的完整标签，方便后续步骤使用或调试
+      # -------------------------------------------------
       - name: 输出镜像完整标签
         run: |
-          echo "镜像已推送到: ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest"
+          echo "✅ 镜像已成功推送至:"
+          echo "   ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest"
+          echo "   （包含平台 linux/amd64 与 linux/arm64）"

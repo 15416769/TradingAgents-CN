@@ -11,12 +11,12 @@ RUN mkdir -p /app/data /app/logs
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-RUN echo 'deb http://mirrors.aliyun.com/debian/ bookworm main' > /etc/apt/sources.list && \
-    echo 'deb-src http://mirrors.aliyun.com/debian/ bookworm main' >> /etc/apt/sources.list && \
-    echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main' >> /etc/apt/sources.list && \
-    echo 'deb-src http://mirrors.aliyun.com/debian/ bookworm-updates main' >> /etc/apt/sources.list && \
-    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list && \
-    echo 'deb-src http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list
+# RUN echo 'deb http://mirrors.aliyun.com/debian/ bookworm main' > /etc/apt/sources.list && \
+#     echo 'deb-src http://mirrors.aliyun.com/debian/ bookworm main' >> /etc/apt/sources.list && \
+#     echo 'deb http://mirrors.aliyun.com/debian/ bookworm-updates main' >> /etc/apt/sources.list && \
+#     echo 'deb-src http://mirrors.aliyun.com/debian/ bookworm-updates main' >> /etc/apt/sources.list && \
+#     echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list && \
+#     echo 'deb-src http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -35,18 +35,19 @@ RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 -ac +extension GLX &\nexpo
 
 COPY requirements.txt .
 
-#多源轮询安装依赖
+# #多源轮询安装依赖
+# RUN set -e; \
+#     for src in \
+#         https://mirrors.aliyun.com/pypi/simple \
+#         https://pypi.tuna.tsinghua.edu.cn/simple \
+#         https://pypi.doubanio.com/simple \
+#         https://pypi.org/simple; do \
+#       echo "Try installing from $src"; \
+#       pip install --no-cache-dir -r requirements.txt -i $src && break; \
+#       echo "Failed at $src, try next"; \
+#     done
 RUN set -e; \
-    for src in \
-        https://mirrors.aliyun.com/pypi/simple \
-        https://pypi.tuna.tsinghua.edu.cn/simple \
-        https://pypi.doubanio.com/simple \
-        https://pypi.org/simple; do \
-      echo "Try installing from $src"; \
-      pip install --no-cache-dir -r requirements.txt -i $src && break; \
-      echo "Failed at $src, try next"; \
-    done
-
+pip install --no-cache-dir -r requirements.txt
 # 复制日志配置文件
 COPY config/ ./config/
 

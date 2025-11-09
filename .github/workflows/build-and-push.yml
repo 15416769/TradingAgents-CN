@@ -1,58 +1,73 @@
 name: 📦 Build & Push Multi‑arch (Cache + Parallel)
 
+# -------------------------------------------------
+# 触发方式：push 到 main 分支，或手动触发（workflow_dispatch）
+# -------------------------------------------------
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
+# -------------------------------------------------
+# 需要的权限：读取源码 + 向 GHCR 写入镜像
+# -------------------------------------------------
 permissions:
   contents: read
-  packages: write   # 推送到 GHCR 所需
+  packages: write   # 让 GITHUB_TOKEN 能向 ghcr.io 推送
 
+# =================================================
+# 1️⃣ 预先启动 QEMU（只需要执行一次）
+# =================================================
 jobs:
-  # ---------- 1️⃣ 预先准备 QEMU ---------- #
   qemu-setup:
     runs-on: ubuntu-latest
     outputs:
+      # 把 QEMU 的准备状态传递给后面的 job（虽然这里不真的用到，但保留以防以后需求）
       qemu_ready: ${{ steps.qemu.outputs.qemu_ready }}
     steps:
-      - name: 安装 QEMU（只要一次）
+      - name: 安装 QEMU（仅 arm64）
         id: qemu
         uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64       # 只启用 arm64
-      - name: 打印 QEMU 状态（调试）
+          platforms: arm64
+
+      - name: 输出 QEMU 状态（调试用）
         run: echo "QEMU ready: ${{ steps.qemu.outputs.qemu_ready }}"
 
-  # ---------- 2️⃣ 多平台 Build（使用矩阵） ---------- #
+# =================================================
+# 2️⃣ 并行构建两平台（amd64 + arm64）
+# =================================================
   build:
-    needs: qemu-setup
+    needs: qemu-setup                # 等待 QEMU 完成后再跑
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 两个平台并行（如果想单独跑，可改成 `include:` 分别写）
-        platform: [ linux/amd64, linux/arm64 ]
-    timeout-minutes: 720                # 防止 6 h 自动终止（只在有配额时使用）
+        platform: [ linux/amd64, linux/arm64 ]   # 两个平台并行
+    timeout-minutes: 720             # 防止 6 h 超时（如果配额足够可使用）
     env:
-      REPO: ${{ github.repository_owner }}
-      IMAGE: tradingagents-cn
+      REPO_OWNER: ${{ github.repository_owner }}
+      IMAGE_NAME: tradingagents-cn    # 请确保仓库名已全小写
     steps:
-      - uses: actions/checkout@v4
+      # ---------------- 代码检查 out ----------------
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-      # ---------- BuildKit 本地缓存 ----------
-      - name: 本地 BuildKit 缓存
+      # ---------------- 本地缓存（可选） ----------------
+      - name: 设置 BuildKit 本地缓存
         id: cache
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
+          # 让每个平台的缓存相互独立
           key: ${{ runner.os }}-buildx-${{ matrix.platform }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-${{ matrix.platform }}-
 
-      # ---------- Buildx + QEMU ----------
+      # ---------------- Buildx（Docker 多平台构建工具） ----------------
       - name: 设置 Buildx
         uses: docker/setup-buildx-action@v3
 
+      # ---------------- 登录 GHCR ----------------
       - name: 登录 GHCR
         uses: docker/login-action@v3
         with:
@@ -60,6 +75,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ---------------- 构建并推送当前平台的镜像 ----------------
       - name: 构建并推送镜像（${{ matrix.platform }}）
         uses: docker/build-push-action@v5
         with:
@@ -67,22 +83,25 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}   # 只构建当前矩阵中的平台
           tags: |
-            ghcr.io/${{ env.REPO }}/${{ env.IMAGE }}:latest
-            # 你可以在这里添加更多标签（如 SHA、tag 版本）
+            ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache,mode=max
 
-      - name: 打印构建完成的标签
+      # ---------------- 打印成功信息 ----------------
+      - name: 打印完成提示
         run: |
-          echo "✅ ${{ matrix.platform }} 推送完成 → ghcr.io/${{ env.REPO }}/${{ env.IMAGE }}:latest"
+          echo "✅ ${{ matrix.platform }} 已成功推送至 → ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest"
 
-# ---------- 3️⃣（可选）最终的 manifest 合并 ----------
-# 这一步把两个平台的镜像“合并”为同一个 multi‑arch manifest
-# （如果你在每个 job 中已经使用 `push: true` 并且平台相同，GitHub 会自动创建 manifest，
-#  但为了确保可控，可显式执行一次 `docker manifest push`）
+# =================================================
+# 3️⃣（可选）显式创建 multi‑arch manifest
+#    （大多数情况下 `docker/build-push-action` 已自动生成 Manifest，保留此步骤仅作演示）
+# =================================================
   manifest:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      REPO_OWNER: ${{ github.repository_owner }}
+      IMAGE_NAME: tradingagents-cn
     steps:
       - name: 登录 GHCR
         uses: docker/login-action@v3
@@ -93,6 +112,8 @@ jobs:
 
       - name: 创建并推送 multi‑arch manifest
         run: |
-          docker manifest create ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest \
-            --amend ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest@$(docker pull --quiet ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest | awk '/Digest:/ {print $2}')
-          docker manifest push ghcr.io/${{ github.repository_owner }}/tradingagents-cn:latest
+          # 创建一个包含两个平台镜像的 manifest（如果已经存在，下面的命令会更新它）
+          docker manifest create ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest \
+            ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest@$(docker pull --quiet ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest | awk '/Digest:/ {print $2}' | head -n1) \
+            ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest@$(docker pull --quiet ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest | awk '/Digest:/ {print $2}' | tail -n1)
+          docker manifest push ghcr.io/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:latest

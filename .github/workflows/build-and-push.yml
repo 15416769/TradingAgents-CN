@@ -1,59 +1,54 @@
-# .github/workflows/build-and-push.yml
 name: 构建并推送 Docker 镜像
 
+# 触发方式：push 到 main 分支，或手动触发（workflow_dispatch）
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ main ]    # 仅在 main 分支推送时触发
+  workflow_dispatch:      # 允许手动触发
 
+# 为了能够向 GHCR 写入，需要给 GITHUB_TOKEN 额外的 packages 权限
 permissions:
-  contents: read
-  packages: write
+  contents: read          # 默认读取源码的权限
+  packages: write         # 允许向 GHCR 推送镜像
+  # 如果你还会发布 Release，可再加上
+  # deployments: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ 检出代码
-      - uses: actions/checkout@v4
+      # 1️⃣ 检出代码（默认会把仓库的最新提交拉到 runner）
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-      # 2️⃣ 把仓库名转成小写并写入环境变量 (REPO_LOWER)
-      - name: 生成小写仓库名
-        id: repo_lower
-        run: |
-          # Bash 参数展开 ${VAR,,} → 小写
-          REPO_LOWER="${{ github.event.repository.name,, }}"
-          echo "REPO_LOWER=$REPO_LOWER" >> $GITHUB_ENV   # 供后面所有步骤使用
-          echo "repo_lower=$REPO_LOWER" >> $GITHUB_OUTPUT # 供后续 steps 使用 outputs.repo_lower
-        # 这里不需要任何 secret，纯本地运算
-
-      # 3️⃣ 设置 Docker Buildx
-      - name: 设置 Docker Buildx
+      # 2️⃣ 设置 Docker Buildx（多平台构建的必备插件）
+      - name: 设置 Docker 构建工具
         uses: docker/setup-buildx-action@v3
 
-      # 4️⃣ 登录 GHCR
-      - name: 登录 GHCR
+      # 3️⃣ 登录到镜像仓库（这里演示登录 GitHub Container Registry）
+      - name: 登录到 GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
+          registry: ghcr.io                # 可省略，同上
+          username: ${{ github.actor }}   # GitHub 用户名（当前触发工作流的账号）
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 5️⃣ 构建并推送镜像（使用 env.REPO_LOWER）
+      # 4️⃣ 构建镜像并推送到 GHCR
       - name: 构建并推送镜像
         uses: docker/build-push-action@v5
         with:
-          context: .
-          push: true
+          context: .                      # Dockerfile 所在目录（这里是项目根目录）
+          push: true                      # 构建完后直接推送
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest
-          # 若想再加上版本标签，可写成：
+            # ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+            ghcr.io/${{ github.repository_owner }}/tradingAgents-cn:latest
+          # 如果你想一次打多个标签（例如:latest、:v1.0.0），可以写成：
           # tags: |
-          #   ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest
-          #   ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:${{ github.sha }}
+          #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+          #   ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:v1.0.0
 
-      # 6️⃣ 输出最终镜像名称（调试/后续步骤可复用）
+      # 5️⃣ （可选）输出镜像的完整名称，方便在后续步骤中使用
       - name: 输出镜像完整标签
         run: |
-          echo "✔ 已推送至: ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LOWER }}:latest"
+          echo "镜像已推送到: ghcr.io/${{ github.repository_owner }}/tradingAgents-cn:latest"
